@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ESP32 센서 데이터 뷰어</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    body {
+      background-color: #121212;
+      color: #e0e0e0;
+      font-family: Arial, sans-serif;
+      padding: 20px;
+    }
+    h2 {
+      color: #fff;
+    }
+    .chart-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+    }
+    .chart-box {
+      width: 48%;
+      margin-bottom: 20px;
+    }
+    canvas {
+      background: #1e1e1e;
+      border: 1px solid #333;
+      width: 100% !important;
+      height: auto !important;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background-color: #1e1e1e;
+    }
+    th, td {
+      padding: 8px;
+      text-align: center;
+      border: 1px solid #444;
+    }
+    th {
+      background-color: #2c2c2c;
+      color: #fff;
+    }
+    button {
+      background-color: #444;
+      color: #fff;
+      padding: 10px;
+      border: none;
+      cursor: pointer;
+      margin-bottom: 20px;
+    }
+    button:hover {
+      background-color: #555;
+    }
+  </style>
+</head>
+<body>
+  <h2>ESP32 센서 데이터</h2>
+  <button onclick="downloadCSV()">CSV 다운로드</button>
+
+  <div class="chart-container">
+    <div class="chart-box"><canvas id="chart1"></canvas></div>
+    <div class="chart-box"><canvas id="chart2"></canvas></div>
+    <div class="chart-box"><canvas id="chart3"></canvas></div>
+    <div class="chart-box"><canvas id="chart4"></canvas></div>
+  </div>
+
+  <table id="data-table">
+    <thead>
+      <tr>
+        <th>시간</th>
+        <th>핀 4번 온도</th>
+        <th>핀 4번 습도</th>
+        <th>핀 5번 온도</th>
+        <th>핀 5번 습도</th>
+        <th>핀 22번 온도</th>
+        <th>핀 22번 습도</th>
+        <th>핀 17번 온도</th>
+        <th>핀 17번 습도</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    const maxPoints = 100;
+    const labels = [];
+    const table = document.querySelector("#data-table tbody");
+
+    const createChart = (ctxId, label) => {
+      const ctx = document.getElementById(ctxId).getContext("2d");
+      return new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: label + " 온도",
+              data: [],
+              borderColor: "#ff6384",
+              yAxisID: 'y',
+              fill: false,
+            },
+            {
+              label: label + " 습도",
+              data: [],
+              borderColor: "#36a2eb",
+              yAxisID: 'y1',
+              fill: false,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          animation: false,
+          scales: {
+            x: {
+              ticks: { color: '#ccc' },
+              grid: { color: '#444' }
+            },
+            y: {
+              position: 'left',
+              min: 15,
+              max: 45,
+              ticks: { color: '#ff6384' },
+              grid: { color: '#444' },
+              title: {
+                display: true,
+                text: "온도 (°C)",
+                color: '#ff6384'
+              }
+            },
+            y1: {
+              position: 'right',
+              min: 35,
+              max: 99,
+              ticks: { color: '#36a2eb' },
+              grid: {
+                drawOnChartArea: false
+              },
+              title: {
+                display: true,
+                text: "습도 (%)",
+                color: '#36a2eb'
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              labels: {
+                color: '#ccc'
+              }
+            }
+          }
+        },
+      });
+    };
+
+    const charts = [
+      createChart("chart1", "핀 4번"),
+      createChart("chart2", "핀 5번"),
+      createChart("chart3", "핀 22번"),
+      createChart("chart4", "핀 17번"),
+    ];
+
+    function addData(msg) {
+      const now = new Date().toLocaleTimeString();
+      labels.push(now);
+      if (labels.length > maxPoints) labels.shift();
+
+      const obj = JSON.parse(msg);
+
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td>${now}</td>
+        <td>${obj["핀 4번"].t1}</td>
+        <td>${obj["핀 4번"].h1}</td>
+        <td>${obj["핀 5번"].t2}</td>
+        <td>${obj["핀 5번"].H2}</td>
+        <td>${obj["핀 22번"].t3}</td>
+        <td>${obj["핀 22번"].H3}</td>
+        <td>${obj["핀 17번"].t4}</td>
+        <td>${obj["핀 17번"].H4}</td>`;
+      table.insertBefore(row, table.firstChild);
+
+      const vals = [
+        [obj["핀 4번"].t1, obj["핀 4번"].h1],
+        [obj["핀 5번"].t2, obj["핀 5번"].H2],
+        [obj["핀 22번"].t3, obj["핀 22번"].H3],
+        [obj["핀 17번"].t4, obj["핀 17번"].H4],
+      ];
+
+      vals.forEach((v, i) => {
+        charts[i].data.labels = labels;
+        charts[i].data.datasets[0].data.push(v[0]);
+        charts[i].data.datasets[1].data.push(v[1]);
+        if (charts[i].data.datasets[0].data.length > maxPoints) {
+          charts[i].data.datasets[0].data.shift();
+          charts[i].data.datasets[1].data.shift();
+        }
+        charts[i].update();
+      });
+    }
+
+    // ✅ MQTT 연결
+    const mqttClient = mqtt.connect("wss://broker.hivemq.com:8884/mqtt");
+
+    mqttClient.on("connect", () => {
+      console.log("✅ MQTT 연결 완료");
+      mqttClient.subscribe("esp32/sensor", (err) => {
+        if (!err) {
+          console.log("📡 'esp32/sensor' 토픽 구독 중...");
+        }
+      });
+    });
+
+    mqttClient.on("message", (topic, message) => {
+      if (topic === "esp32/sensor") {
+        addData(message.toString());
+      }
+    });
+
+    function downloadCSV() {
+      let csv = "시간,핀4번 온도,핀4번 습도,핀5번 온도,핀5번 습도,핀22번 온도,핀22번 습도,핀17번 온도,핀17번 습도\n";
+      document.querySelectorAll("#data-table tbody tr").forEach(row => {
+        const cells = row.querySelectorAll("td");
+        const line = Array.from(cells).map(td => td.textContent).join(",");
+        csv += line + "\n";
+      });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", "sensor_data.csv");
+      link.click();
+    }
+  </script>
+</body>
+</html>
